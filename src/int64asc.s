@@ -17,7 +17,6 @@
 .global int64asc
 int64asc:
     enterfn           // Function prologue macro
-    mov  X3, #0       // Init digit count
     mov  X4, #10      // Init radix
     cmp  X0, #0       // Check sign of number
     b.ge countDigits
