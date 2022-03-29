@@ -15,6 +15,6 @@ $(OBJECTS): | $(OBJDIR)
 $(OBJDIR):
 	mkdir $(OBJDIR)
 
-.PHONY: clean debug
+.PHONY: clean
 clean:
-	-rm -r $(PROGRAM) $(OBJDIR)
+	-rm -r $(PROGRAM) $(OBJDIR) test test.o test.s

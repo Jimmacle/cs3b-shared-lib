@@ -43,9 +43,9 @@ ascint64:
     // Get string length if input <= 0
     cmp  Xlen, #0
     b.gt skipstrlen
-    bl   strlen
+    bl   strlength
     mov  Xlen, X0
-skipstrlen:
+skiptrlen:
 
     // Find last character in string
     add XpEnd, XpStr, Xlen

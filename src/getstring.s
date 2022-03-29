@@ -30,7 +30,6 @@ getstring:
     add  X1, X1, #1     // Increment buffer index
     subs X3, X3, #1     // Space remaining -= 1, set flags
     b.ne 1b             // loop unless no more space
-1:
-    
+1:    
     strb WZR, [X1]       // Set last char to \0
     exitfn 

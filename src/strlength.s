@@ -6,15 +6,15 @@
 .include "aapcs64.inc"
 
     .text
-// strlen(char* string) -> int64 length
+// strlength(char* string) -> int64 length
 //   Calculates the length of a null-terminated ASCII string.
 // PRECONDITIONS:
 //   X0: (char*) pointer to first character of string.
 // POSTCONDITIONS:
 //   X0 = (int64) the length of the string.
 //   Registers X0-2, V0-1 are modified.
-.global strlen
-strlen:
+.global strlength
+strlength:
     enterfn 
     mov   X1, X0                    // use X1 as end pointer
     ldr   Q1, offsets               // Load offset table to V1
