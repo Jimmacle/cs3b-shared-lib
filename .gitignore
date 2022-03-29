@@ -1,2 +1,3 @@
 *.o
 rasm1
+shared.a
