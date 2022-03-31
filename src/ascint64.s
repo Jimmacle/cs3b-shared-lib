@@ -3,101 +3,77 @@
 // Purpose:  Parse a 64 bit integer from a null-terminated string
 // Modified: 2020-02-16
 .include "aapcs64.inc"
+.include "result.inc"
 .altmacro
 
-    .text
-// ascint64(char* string, int64 length) -> int64, bool
-//   Converts a string consisting of characters 0-9 to an integer.
-//   Leading +/- is accepted.
+.text
+// RESULT ascint64(char* input, int64 length, int64* pNum)
+//   Converts a string of decimal numbers to an integer. Leading +/- supported.
 // PRECONDITIONS:
-//   X0: (char*) pointer to first character of string.
-//   X1: (int64) the length of the string. A value <= 0
-//       will automatically determine string length.
+//   input  (in):  Pointer to the first character of the number string.
+//   length (in):  The length of the number string. A value <= 0 will measure the string automatically.
+//   pNum/  (out): A pointer to memory to store the parsed integer.
 // POSTCONDITIONS:
-//   X0: (int64) the parsed integer.
-//   X1: (bool) nonzero if parsed successfully.
-//   V flag: set if input is out of range.
-//   Registers X0-X1 are modified.
-//   Flags register is modified.
-.equ SAVE_LO, 19 // Lower bound of registers to preserve
-.equ SAVE_HI, 26 // Upper bound of registers to preserve
-XpStr     .req X19 // Pointer of beginning of string.
-Xlen      .req X20 // Length of string.
-Xradix    .req X21 // Base of the number to convert to.
-Xplace    .req X22 // Multiplier for the digit being converted.
-Wchar     .req W23 // Character being converted.
-Xchar     .req X23 // Character being converted.
-Xresult   .req X24 // The final parsed number.
-XpEnd     .req X25 // Pointer to end of string.
-Xcount    .req X26 // Digit overflow counter.
+//   RESULT = SUCCESS | FAIL | OVERFLOW
+//   *num will contain the parsed integer if successful, otherwise undefined.
+Xinput  .req X0
+Xlength .req X1
+XpNum   .req X2
+Xradix  .req X9
+Xfactor .req X10
+Xnum    .req X11
 
 .global ascint64
 ascint64:
-    // Init function and locals
     enterfn
-    pushRegRange %SAVE_LO, %SAVE_HI
-    mov XpStr,   X0
-    mov Xlen,    X1
-    mov Xradix,  #10
-    mov Xplace,   #1
-    mov Xresult,  #0
-    mov Xcount,   #0
+    // Measure string if needed.
+    // Done first so register clobbering is irrelevant.
+    cmp Xlength, #0
+    b.gt measured
+    stp Xinput, XpNum, [SP, #-16]!
+    bl strlength
+    mov Xlength, X0
+    ldp Xinput, XpNum, [SP], #16
 
-    // Get string length if input <= 0
-    cmp  Xlen, #0
-    b.gt skipstrlen
-    bl   strlength
-    mov  Xlen, X0
-skipstrlen:
+    mov Xradix, #10
+    mov Xnum,    #0
+measured:
+    // Handle leading signs
+    mov  X5, #0                 // Used for length adjustment
+    mov  Xfactor, #1            // Set default factor to 1
+    ldrb W4, [Xinput]           // Get first char of string
+    cmp  W4, '-                 // Is char '-'?
+    cneg Xfactor, Xfactor, eq   //   Flip factor sign
+    cinc X5, X5, eq             //   Increment length adjustment
+    cmp  W4, '+                 // Is char '+'?
+    cinc X5, X5, eq             //   Increment length adjustment
+    sub  Xlength, Xlength, X5   // Reduce length by adjustment
+    add  Xinput, Xinput, X5     // Advance string start by adjustment
 
-    // Find last character in string
-    add XpEnd, XpStr, Xlen
-    sub XpEnd, XpEnd, #1
-    
-    // Handle a leading + or -
-    ldrb Wchar, [XpStr] // Load first char
-    cmp  Wchar, #'-     
-    b.eq case_minus     // Jump to case_minus if Wchar = '-'
-    cmp  Wchar, #'+
-    b.eq case_plus      // Jump to case_plus if Wchar = '+'
-    b    case_none
-case_minus:
-    // Negate factor to produce a negative number
-    mov Xplace, #-1      // Change factor from 1 to -1
-case_plus:
-    // Skip first character of string
-    add XpStr, XpStr, #1 // Increment beginning of string
-    sub Xlen, Xlen, #1   // Decrement string length
-case_none:
-   
-    // Digit conversion loop
-loop:
-    cmp  Xcount, #19
-    b.eq fail_vs                // Too many digits
-    ldrb Wchar, [XpEnd], #-1 // Get character at end, decrement end pointer
-    subs Wchar, Wchar, #'0   // Subtract '0' to get the actual number
-    b.lt fail                // Error if character was before '0' (not digit)
-    cmp  Wchar, #9           // Compare character to 9
-    b.gt fail                // Error if number > 9 (not digit)
-    mul  Xchar, Xchar, Xplace
-    adds Xresult, Xresult, Xchar
-    b.vs fail                            // Number too big
-    mul  Xplace, Xplace, Xradix // place *= radix
-    add  Xcount, Xcount, #1
-    cmp  XpStr, XpEnd                    // Compare beginning and end pointers
-    b.le loop                            // Loop if start <= end
-    mov  X0, Xresult                     // Returned number = Xresult
-    mov  X1, #1                          // Success = true
-    b    end
+    // Fail early if too many digits
+    cmp Xlength, #19
+    b.gt fail_vs
+
+    // Convert number
+convert:
+    sub Xlength, Xlength, #1     // Get index of next char
+    ldrb W4, [Xinput, Xlength]   // Get next char
+    sub X4, X4, #'0              // Convert ASCII char to equivalent integer
+    cmp X4, #0                   // Number < 0 is not a digit
+    b.lt fail
+    cmp X4, #9                   // Number > 9 is not a digit
+    b.gt fail
+    mul X4, X4, Xfactor          // Put digit in correct place
+    adds Xnum, Xnum, X4          // Add digit, check overflow
+    b.vs fail_vs
+    mul Xfactor, Xfactor, Xradix // Move factor to next place
+    cbnz Xlength, convert        // Loop if digits left to convert
+    str Xnum, [XpNum]            // Store converted number
+    mov X0, #SUCCESS
+    exitfn
 fail_vs:
-    mrs X0, NZCV
-    mov X1, #1
-    orr X0, X0, X1, lsl #28
-    msr NZCV, X0
+    mov X0, #OVERFLOW
+    exitfn
 fail:
-    mov X0, #0 // Returned number = 0
-    mov X1, #0 // Success = false
-end:
-    // Clean up and return
-    popRegRange %SAVE_LO, %SAVE_HI
+    mov X0, #FAIL
     exitfn
